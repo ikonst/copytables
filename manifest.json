@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "CopyTables",
+  "version": "1.0",
+  "description": "Select table cells in a grid and copy as TSV",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["dist/content.js"],
+      "css": ["dist/content.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["dist/*.js.map", "src/*.ts"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

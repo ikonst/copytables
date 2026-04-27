@@ -1,0 +1,7 @@
+td.copytables-selected,
+th.copytables-selected,
+[role="gridcell"].copytables-selected,
+[role="columnheader"].copytables-selected {
+  background-color: rgba(0, 100, 255, 0.15) !important;
+  outline: 1px solid rgba(0, 100, 255, 0.4) !important;
+}

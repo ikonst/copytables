@@ -1,0 +1,16 @@
+{
+  "name": "copytables",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc && cp content.css dist/",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "lint": "prettier --check .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.8.3",
+    "typescript": "^5.8"
+  }
+}
