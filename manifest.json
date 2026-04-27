@@ -7,7 +7,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["dist/content.js"],
-      "css": ["dist/content.css"]
+      "css": ["content.css"]
     }
   ],
   "web_accessible_resources": [

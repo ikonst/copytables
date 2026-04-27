@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "tsc && cp content.css dist/",
+    "build": "tsc",
     "watch": "tsc --watch",
     "clean": "rm -rf dist",
     "lint": "prettier --check .",

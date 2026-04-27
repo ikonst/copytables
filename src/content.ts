@@ -5,6 +5,7 @@ interface Grid {
   cellAt(r: number, c: number): HTMLElement | null;
   rowElement(r: number): HTMLElement | null;
   isHeaderRow(r: number): boolean;
+  firstDataCell(): HTMLElement | null;
 }
 
 interface Coords {
@@ -32,6 +33,7 @@ const selection: { anchor: Coords | null; focus: Coords | null } = {
 };
 let dragging = false;
 let observer: MutationObserver | null = null;
+let scrollInterval: number | null = null;
 
 function makeTableGrid(table: HTMLTableElement): Grid {
   const allRows = Array.from(table.rows);
@@ -60,6 +62,17 @@ function makeTableGrid(table: HTMLTableElement): Grid {
       const cells = Array.from(tr.cells);
       return cells.length > 0 && cells.every((c) => c.tagName === "TH");
     },
+    firstDataCell(): HTMLElement | null {
+      for (const row of rowCells) {
+        for (const cell of row) {
+          if (cell.tagName === "TH" || table.tHead?.contains(cell)) {
+            break;
+          }
+          return cell;
+        }
+      }
+      return null;
+    },
   };
 }
 
@@ -69,8 +82,7 @@ function makeAriaGrid(gridEl: HTMLElement): Grid {
     rowIndex: number;
   }> {
     let rowIndex = 0;
-    for (const el of gridEl.querySelectorAll('[role="row"]')) {
-      const row = el as HTMLElement;
+    for (const row of gridEl.querySelectorAll<HTMLElement>('[role="row"]')) {
       if (row.ariaRowIndex !== null) {
         const nextRowIndex = Number(row.ariaRowIndex);
         if (nextRowIndex > rowIndex) {
@@ -92,10 +104,9 @@ function makeAriaGrid(gridEl: HTMLElement): Grid {
     colIndex: number;
   }> {
     let colIndex = 0;
-    for (const el of row.querySelectorAll(
+    for (const cell of row.querySelectorAll<HTMLElement>(
       '[role="gridcell"], [role="columnheader"]',
     )) {
-      const cell = el as HTMLElement;
       if (cell.ariaColIndex !== null) {
         const nextColIndex = Number(cell.ariaColIndex);
         if (nextColIndex > colIndex) {
@@ -150,19 +161,37 @@ function makeAriaGrid(gridEl: HTMLElement): Grid {
       if (cells.length === 0) return false;
       return cells.every((c) => c.role === "columnheader");
     },
+    firstDataCell(): HTMLElement | null {
+      for (const { row } of rowIterator()) {
+        for (const { cell } of cellIterator(row)) {
+          if (cell.role === "columnheader") {
+            break;
+          }
+          return cell;
+        }
+      }
+      return null;
+    },
   };
 }
 
 function findGrid(el: Element): Grid | null {
   const table = el.closest("table");
-  if (table) return makeTableGrid(table);
-  const gridEl = el.closest('[role="grid"]');
-  if (gridEl) return makeAriaGrid(gridEl as HTMLElement);
+  if (table) {
+    if (!table.querySelector("th")) {
+      // Chromium has nice heuristic for it: https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/modules/accessibility/ax_node_object.cc;l=1951-2191?q=return%20Role::kLayoutTable&ss=chromium%2Fchromium%2Fsrc
+      // but there's no public API to get the computed ARIA role yet, so we'll settle for this:
+      return null; // treat tables without <th> as "layout tables"
+    }
+    return makeTableGrid(table);
+  }
+  const ariaGrid = el.closest<HTMLElement>('[role="grid"]');
+  if (ariaGrid) return makeAriaGrid(ariaGrid);
   return null;
 }
 
 function cellCoords(el: Element): Coords | null {
-  const td = el.closest("td, th") as HTMLTableCellElement | null;
+  const td = el.closest<HTMLTableCellElement>("td, th");
   if (td) {
     const table = td.closest("table");
     if (table) {
@@ -177,7 +206,7 @@ function cellCoords(el: Element): Coords | null {
         grid,
         row: {
           index: rowIndex,
-          offset: tr.offsetTop,
+          offset: td.offsetTop,
         },
         col: {
           index: colIndex,
@@ -186,20 +215,21 @@ function cellCoords(el: Element): Coords | null {
       };
     }
   }
-  const ariaCell = el.closest(
+
+  const ariaCell = el.closest<HTMLElement>(
     '[role="gridcell"], [role="columnheader"]',
-  ) as HTMLElement | null;
+  );
   if (ariaCell) {
-    const gridEl = ariaCell.closest('[role="grid"]') as HTMLElement | null;
-    if (gridEl) {
-      const grid = makeAriaGrid(gridEl);
-      const ariaRow = ariaCell.closest('[role="row"]') as HTMLElement | null;
-      if (ariaRow) {
+    const ariaRow = ariaCell.closest<HTMLElement>('[role="row"]');
+    if (ariaRow) {
+      const ariaGrid = ariaCell.closest<HTMLElement>('[role="grid"]');
+      if (ariaGrid) {
+        const grid = makeAriaGrid(ariaGrid);
         return {
           grid,
           row: {
             index: Number(ariaRow.ariaRowIndex),
-            offset: ariaRow.offsetTop,
+            offset: ariaCell.offsetTop,
           },
           col: {
             index: Number(ariaCell.ariaColIndex),
@@ -282,6 +312,7 @@ function highlightSelection(): void {
       }
     }
   }
+  rect.grid.root.tabIndex = -1; // make grid focusable for better keyboard accessibility
   observeGrid();
 }
 
@@ -326,10 +357,42 @@ document.addEventListener("mousemove", (e: MouseEvent) => {
     selection.focus = coords;
     highlightSelection();
   }
+
+  // scroll if near edge of viewport,
+  // kind of like https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/page/autoscroll_controller.cc
+  const { root } = coords.grid;
+  let gridRect = root.getBoundingClientRect();
+  const margin = 50;
+  const scrollMargin = 50;
+
+  let scrollToOpts: ScrollToOptions | null = null;
+  if (e.clientY < gridRect.top + margin) {
+    scrollToOpts = { top: -scrollMargin, behavior: "smooth" };
+  } else if (e.clientY > gridRect.bottom - margin) {
+    scrollToOpts = { top: scrollMargin, behavior: "smooth" };
+  }
+  if (e.clientX < gridRect.left + margin) {
+    scrollToOpts = { left: -scrollMargin, behavior: "smooth" };
+  } else if (e.clientX > gridRect.right - margin) {
+    scrollToOpts = { left: scrollMargin, behavior: "smooth" };
+  }
+  if (scrollInterval) {
+    clearInterval(scrollInterval);
+  }
+  if (scrollToOpts) {
+    root.scrollBy(scrollToOpts);
+    scrollInterval = setInterval(() => {
+      root.scrollBy(scrollToOpts);
+    }, 100);
+  }
 });
 
 document.addEventListener("mouseup", () => {
   dragging = false;
+  if (scrollInterval) {
+    clearInterval(scrollInterval);
+    scrollInterval = null;
+  }
 });
 
 function cellText(cell: HTMLElement | null): string {
@@ -377,16 +440,21 @@ async function collectRows(
     headHtml = `<thead>${headRowsHtml.join("")}</thead>`;
   }
 
-  let lastCell = grid.cellAt(rect.minRow.index, rect.minCol.index);
-  if (lastCell === null) {
-    grid.root.scrollTo({ top: rect.minRow.offset, behavior: "instant" });
-    for (let attempt = 0; lastCell === null && attempt < 10; attempt++) {
+  const frozenHeadingOffset = grid.firstDataCell()?.offsetTop ?? 0;
+
+  let prevCell = grid.cellAt(rect.minRow.index, rect.minCol.index);
+  if (prevCell === null) {
+    grid.root.scrollTo({
+      top: rect.minRow.offset - frozenHeadingOffset,
+      behavior: "instant",
+    });
+    for (let attempt = 0; prevCell === null && attempt < 10; attempt++) {
       await sleep(100);
-      lastCell = grid.cellAt(rect.minRow.index, rect.minCol.index);
+      prevCell = grid.cellAt(rect.minRow.index, rect.minCol.index);
     }
   }
-  if (!lastCell) {
-    console.warn(
+  if (!prevCell) {
+    console.info(
       `Could not access first cell at ${rect.minRow.index}:${rect.minCol.index} after multiple attempts.`,
     );
     return { tsv: "", html: headHtml + `<tbody></tbody>` };
@@ -398,9 +466,9 @@ async function collectRows(
 
     for (let c = rect.minCol.index; c <= rect.maxCol.index; c++) {
       let cell = grid.cellAt(r, c);
-      if (!cell && lastCell) {
+      if (!cell && prevCell) {
         grid.root.scrollTo({
-          top: lastCell.offsetTop + lastCell.offsetHeight,
+          top: prevCell.offsetTop + prevCell.offsetHeight - frozenHeadingOffset,
           behavior: "instant",
         });
         for (let attempt = 0; cell === null && attempt < 10; attempt++) {
@@ -415,7 +483,7 @@ async function collectRows(
       }
       tsvCols.push(cellText(cell));
       htmlCols.push(cellHTML(cell));
-      if (cell) lastCell = cell;
+      if (cell) prevCell = cell;
     }
     tsvLines.push(tsvCols.join("\t"));
     htmlLines.push(`<tr>${htmlCols.join("")}</tr>`);
