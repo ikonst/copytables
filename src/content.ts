@@ -15,7 +15,7 @@ interface Coords {
 }
 
 interface IndexWithOffset {
-  index: number;
+  index: number; // index (1-based, like the ARIA indexes) of the row/column
   offset: number; // offset in pixels from the top/left of the grid, used for scrolling into view
 }
 
@@ -205,11 +205,11 @@ function cellCoords(el: Element): Coords | null {
       return {
         grid,
         row: {
-          index: rowIndex,
+          index: rowIndex + 1,
           offset: td.offsetTop,
         },
         col: {
-          index: colIndex,
+          index: colIndex + 1,
           offset: td.offsetLeft,
         },
       };
@@ -242,7 +242,7 @@ function cellCoords(el: Element): Coords | null {
   return null;
 }
 
-function clearSelection(): void {
+function removeSelectionClasses(): void {
   document.querySelectorAll(".copytables-selected").forEach((el) => {
     el.classList.remove("copytables-selected");
   });
@@ -299,9 +299,16 @@ function observeGrid(): void {
   });
 }
 
+function clearSelection(): void {
+  if (!selection.anchor) return;
+  removeSelectionClasses();
+  disconnectObserver();
+  selection.anchor = selection.focus = null;
+}
+
 function highlightSelection(): void {
   disconnectObserver();
-  clearSelection();
+  removeSelectionClasses();
   const rect = getRect();
   if (!rect) return;
   for (let r = rect.minRow.index; r <= rect.maxRow.index; r++) {
@@ -316,29 +323,40 @@ function highlightSelection(): void {
   observeGrid();
 }
 
+const keyCombo = {
+  isMac:
+    /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
+};
+
 document.addEventListener("mousedown", (e: MouseEvent) => {
   if (!(e.target instanceof Element)) return;
-  const coords = cellCoords(e.target);
-  if (!coords) {
-    if (selection.anchor) {
-      clearSelection();
-      disconnectObserver();
-      selection.anchor = null;
-      selection.focus = null;
-    }
+  if (e.button !== 0) return; // only respond to main button
+  const isMac =
+    /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  // On Mac, only shift
+  // On other platforms, only ctrl
+  if (
+    (isMac && !(e.shiftKey && !e.ctrlKey && !e.altKey)) ||
+    (!isMac && !(e.shiftKey && !e.ctrlKey && !e.altKey))
+  ) {
+    clearSelection();
     return;
   }
 
-  if (
-    e.shiftKey &&
-    selection.anchor &&
-    selection.anchor.grid.root === coords.grid.root
-  ) {
+  const coords = cellCoords(e.target);
+  if (!coords) {
+    clearSelection();
+    return;
+  }
+
+  if (selection.anchor && selection.anchor.grid.root === coords.grid.root) {
     e.preventDefault();
     selection.focus = coords;
   } else {
-    selection.anchor = coords;
-    selection.focus = coords;
+    selection.anchor = selection.focus = coords;
     dragging = true;
   }
   highlightSelection();
