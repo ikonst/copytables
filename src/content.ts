@@ -458,6 +458,7 @@ async function collectRows(
     headHtml = `<thead>${headRowsHtml.join("")}</thead>`;
   }
 
+  // Consider everything above the first *data* cell to be "frozen" like Excel's frozen panes.
   const frozenHeadingOffset = grid.firstDataCell()?.offsetTop ?? 0;
 
   let prevCell = grid.cellAt(rect.minRow.index, rect.minCol.index);
