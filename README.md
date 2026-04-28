@@ -8,8 +8,10 @@
 # Usage
 
 - Two ways to select:
-  - Click then drag
-  - Click then Shift-Click opposite end
+  - Hold **Ctrl** (**Shift** on MacOS), click then drag
+  - Hold **Ctrl** (**Shift** on MacOS), click the first cell then the last cell
+
+- Copy as usual (Ctrl/Cmd-C)
 
 # Features
 
