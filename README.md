@@ -2,7 +2,7 @@
 
 1. Clone the repo
 2. `npm install`
-3. `npm build`
+3. `npm run build`
 4. Go to chrome://extensions, select **Load Unpacked** and navigate to the repo root
 
 # Usage

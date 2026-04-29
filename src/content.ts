@@ -1,3 +1,5 @@
+const className = "copy-tables-selected";
+
 interface Grid {
   root: HTMLElement;
   rowCount: number;
@@ -9,7 +11,6 @@ interface Grid {
 }
 
 interface Coords {
-  grid: Grid;
   row: IndexWithOffset;
   col: IndexWithOffset;
 }
@@ -27,21 +28,17 @@ interface SelectionRect {
   maxCol: IndexWithOffset;
 }
 
-const selection: {
-  grid: Grid | null;
-  anchor: Coords | null;
-  focus: Coords | null;
-} = {
-  grid: null,
-  anchor: null,
-  focus: null,
-};
+let selection: {
+  grid: Grid;
+  anchor: Coords;
+  focus: Coords;
+} | null = null;
 let dragging = false;
 let observer: MutationObserver | null = null;
 let scrollInterval: number | null = null;
 
 function makeTableGrid(table: HTMLTableElement): Grid | null {
-  if (selection.grid?.root === table) {
+  if (selection?.grid.root === table) {
     return selection.grid;
   }
 
@@ -96,7 +93,7 @@ function makeTableGrid(table: HTMLTableElement): Grid | null {
 }
 
 function makeAriaGrid(gridEl: HTMLElement): Grid {
-  if (selection.grid?.root === gridEl) {
+  if (selection?.grid.root === gridEl) {
     return selection.grid;
   }
 
@@ -208,7 +205,7 @@ function findGrid(el: Element): Grid | null {
   return null;
 }
 
-function cellCoords(el: Element): Coords | null {
+function getCellProps(el: Element): { grid: Grid; coords: Coords } | null {
   const td = el.closest<HTMLTableCellElement>("td, th");
   if (td) {
     const table = td.closest("table");
@@ -223,13 +220,15 @@ function cellCoords(el: Element): Coords | null {
       if (rowIndex === -1 || colIndex === -1) return null;
       return {
         grid,
-        row: {
-          index: rowIndex + 1,
-          offset: td.offsetTop,
-        },
-        col: {
-          index: colIndex + 1,
-          offset: td.offsetLeft,
+        coords: {
+          row: {
+            index: rowIndex + 1,
+            offset: td.offsetTop,
+          },
+          col: {
+            index: colIndex + 1,
+            offset: td.offsetLeft,
+          },
         },
       };
     }
@@ -246,13 +245,15 @@ function cellCoords(el: Element): Coords | null {
         const grid = makeAriaGrid(ariaGrid);
         return {
           grid,
-          row: {
-            index: Number(ariaRow.ariaRowIndex),
-            offset: ariaCell.offsetTop,
-          },
-          col: {
-            index: Number(ariaCell.ariaColIndex),
-            offset: ariaCell.offsetLeft,
+          coords: {
+            row: {
+              index: Number(ariaRow.ariaRowIndex),
+              offset: ariaCell.offsetTop,
+            },
+            col: {
+              index: Number(ariaCell.ariaColIndex),
+              offset: ariaCell.offsetLeft,
+            },
           },
         };
       }
@@ -262,16 +263,15 @@ function cellCoords(el: Element): Coords | null {
 }
 
 function removeSelectionClasses(): void {
-  document.querySelectorAll(".copytables-selected").forEach((el) => {
-    el.classList.remove("copytables-selected");
+  document.querySelectorAll(`.${className}`).forEach((el) => {
+    el.classList.remove(className);
   });
 }
 
 function getRect(): SelectionRect | null {
-  const { anchor, focus } = selection;
-  if (!anchor || !focus || anchor.grid.root !== focus.grid.root) return null;
-  const grid = findGrid(anchor.grid.root);
-  if (!grid) return null;
+  if (!selection) return null;
+  const { grid, anchor, focus } = selection;
+  if (!focus) return null;
 
   let minRow = anchor.row;
   if (focus.row.index < minRow.index) {
@@ -291,7 +291,7 @@ function getRect(): SelectionRect | null {
   }
 
   return {
-    grid,
+    grid: grid,
     minRow,
     maxRow,
     minCol,
@@ -308,21 +308,21 @@ function disconnectObserver(): void {
 
 function observeGrid(): void {
   disconnectObserver();
-  if (!selection.anchor) return;
+  if (!selection) return;
   observer = new MutationObserver(() => {
     highlightSelection();
   });
-  observer.observe(selection.anchor.grid.root, {
+  observer.observe(selection.grid.root, {
     childList: true,
     subtree: true,
   });
 }
 
 function clearSelection(): void {
-  if (!selection.anchor) return;
+  if (!selection) return;
   removeSelectionClasses();
   disconnectObserver();
-  selection.anchor = selection.focus = null;
+  selection = null;
 }
 
 function highlightSelection(): void {
@@ -334,7 +334,7 @@ function highlightSelection(): void {
     for (let c = rect.minCol.index; c <= rect.maxCol.index; c++) {
       const cell = rect.grid.cellAt(r, c);
       if (cell) {
-        cell.classList.add("copytables-selected");
+        cell.classList.add(className);
       }
     }
   }
@@ -342,50 +342,51 @@ function highlightSelection(): void {
   observeGrid();
 }
 
-const keyCombo = {
-  isMac:
+function checkIsMac() {
+  return (
     /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
-};
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
 
 document.addEventListener("mousedown", (e: MouseEvent) => {
   if (!(e.target instanceof Element)) return;
   if (e.button !== 0) return; // only respond to main button
-  const isMac =
-    /Mac|iPhone|iPad|iPod/.test(navigator.platform) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   // On Mac, only shift
   // On other platforms, only ctrl
-  if (
-    (isMac && !(e.shiftKey && !e.ctrlKey && !e.altKey)) ||
-    (!isMac && !(e.shiftKey && !e.ctrlKey && !e.altKey))
-  ) {
+  const isMac = checkIsMac();
+  if (!(e.shiftKey == isMac && e.ctrlKey == !isMac && e.altKey == false)) {
     clearSelection();
     return;
   }
 
-  const coords = cellCoords(e.target);
-  if (!coords) {
+  const cellProps = getCellProps(e.target);
+  if (!cellProps) {
     clearSelection();
     return;
   }
 
-  if (selection.anchor && selection.anchor.grid.root === coords.grid.root) {
-    e.preventDefault();
-    selection.focus = coords;
+  e.preventDefault();
+  if (!selection || selection.grid !== cellProps.grid) {
+    selection = {
+      grid: cellProps.grid,
+      anchor: cellProps.coords,
+      focus: cellProps.coords,
+    };
   } else {
-    selection.anchor = selection.focus = coords;
-    dragging = true;
+    selection.focus = cellProps.coords;
   }
   highlightSelection();
+  dragging = true;
 });
 
 document.addEventListener("mousemove", (e: MouseEvent) => {
-  if (!dragging || !selection.anchor || !selection.focus) return;
+  if (!dragging || !selection) return;
   if (!(e.target instanceof Element)) return;
-  const coords = cellCoords(e.target);
-  if (!coords || coords.grid.root !== selection.anchor.grid.root) return;
+  const cellProps = getCellProps(e.target);
+  if (!cellProps || cellProps.grid.root !== selection.grid.root) return;
+  const { coords } = cellProps;
   if (
     coords.row !== selection.focus.row ||
     coords.col !== selection.focus.col
@@ -395,10 +396,13 @@ document.addEventListener("mousemove", (e: MouseEvent) => {
     highlightSelection();
   }
 
-  // scroll if near edge of viewport,
-  // kind of like https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/page/autoscroll_controller.cc
-  const { root } = coords.grid;
-  let gridRect = root.getBoundingClientRect();
+  startScrollingIfNearEdge(e, cellProps.grid.root);
+});
+
+// scroll if near edge of viewport,
+// kind of like https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/core/page/autoscroll_controller.cc
+function startScrollingIfNearEdge(e: MouseEvent, viewport: HTMLElement): void {
+  let gridRect = viewport.getBoundingClientRect();
   const margin = 50;
   const scrollMargin = 50;
 
@@ -413,23 +417,25 @@ document.addEventListener("mousemove", (e: MouseEvent) => {
   } else if (e.clientX > gridRect.right - margin) {
     scrollToOpts = { left: scrollMargin, behavior: "smooth" };
   }
-  if (scrollInterval) {
-    clearInterval(scrollInterval);
-  }
+  stopScrolling();
   if (scrollToOpts) {
-    root.scrollBy(scrollToOpts);
+    viewport.scrollBy(scrollToOpts);
     scrollInterval = setInterval(() => {
-      root.scrollBy(scrollToOpts);
+      viewport.scrollBy(scrollToOpts);
     }, 100);
   }
-});
+}
 
-document.addEventListener("mouseup", () => {
-  dragging = false;
+function stopScrolling(): void {
   if (scrollInterval) {
     clearInterval(scrollInterval);
     scrollInterval = null;
   }
+}
+
+document.addEventListener("mouseup", () => {
+  dragging = false;
+  stopScrolling();
 });
 
 function cellText(cell: HTMLElement | null): string {
