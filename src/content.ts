@@ -438,8 +438,13 @@ document.addEventListener("mouseup", () => {
   stopScrolling();
 });
 
-function cellText(cell: HTMLElement | null): string {
-  return cell ? cell.innerText.trim() : "";
+function cellTsvText(cell: HTMLElement | null): string {
+  if (!cell) return "";
+  let s = cell.innerText.trim().replaceAll("\t", " ").replaceAll("\r", "");
+  if (s.match(/[\n"]/)) {
+    s = `"${s.replaceAll('"', '""')}"`;
+  }
+  return s;
 }
 
 function cellHTML(cell: HTMLElement | null): string {
@@ -474,7 +479,7 @@ async function collectRows(
       const htmlCols: string[] = [];
       for (let c = rect.minCol.index; c <= rect.maxCol.index; c++) {
         const cell = grid.cellAt(r, c);
-        tsvCols.push(cellText(cell));
+        tsvCols.push(cellTsvText(cell));
         htmlCols.push(cellHTML(cell));
       }
       tsvLines.push(tsvCols.join("\t"));
@@ -525,7 +530,7 @@ async function collectRows(
           `Cell at ${r}:${c} not found after retries, leaving blank.`,
         );
       }
-      tsvCols.push(cellText(cell));
+      tsvCols.push(cellTsvText(cell));
       htmlCols.push(cellHTML(cell));
       if (cell) prevCell = cell;
     }
