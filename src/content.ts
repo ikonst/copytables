@@ -27,7 +27,12 @@ interface SelectionRect {
   maxCol: IndexWithOffset;
 }
 
-const selection: { anchor: Coords | null; focus: Coords | null } = {
+const selection: {
+  grid: Grid | null;
+  anchor: Coords | null;
+  focus: Coords | null;
+} = {
+  grid: null,
   anchor: null,
   focus: null,
 };
@@ -35,9 +40,23 @@ let dragging = false;
 let observer: MutationObserver | null = null;
 let scrollInterval: number | null = null;
 
-function makeTableGrid(table: HTMLTableElement): Grid {
+function makeTableGrid(table: HTMLTableElement): Grid | null {
+  if (selection.grid?.root === table) {
+    return selection.grid;
+  }
+
+  // Chromium has nice heuristic for detecting "layout tables":
+  // https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/modules/accessibility/ax_node_object.cc;l=1951-2191?q=return%20Role::kLayoutTable&ss=chromium%2Fchromium%2Fsrc
+  // There's no API for getting a computed ARIA role yet, so we'll do some of its rules here:
+  // - must have a heading
+  // - must have more than 10 rows
+  if (!(table.querySelector("th") || table.tHead || table.rows.length >= 10)) {
+    return null;
+  }
+
   const allRows = Array.from(table.rows);
   const rowCells = allRows.map((tr) => Array.from(tr.cells));
+
   return {
     root: table,
     rowCount: allRows.length,
@@ -77,6 +96,10 @@ function makeTableGrid(table: HTMLTableElement): Grid {
 }
 
 function makeAriaGrid(gridEl: HTMLElement): Grid {
+  if (selection.grid?.root === gridEl) {
+    return selection.grid;
+  }
+
   function* rowIterator(): Generator<{
     row: HTMLElement;
     rowIndex: number;
@@ -178,11 +201,6 @@ function makeAriaGrid(gridEl: HTMLElement): Grid {
 function findGrid(el: Element): Grid | null {
   const table = el.closest("table");
   if (table) {
-    if (!table.querySelector("th")) {
-      // Chromium has nice heuristic for it: https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/modules/accessibility/ax_node_object.cc;l=1951-2191?q=return%20Role::kLayoutTable&ss=chromium%2Fchromium%2Fsrc
-      // but there's no public API to get the computed ARIA role yet, so we'll settle for this:
-      return null; // treat tables without <th> as "layout tables"
-    }
     return makeTableGrid(table);
   }
   const ariaGrid = el.closest<HTMLElement>('[role="grid"]');
@@ -196,6 +214,7 @@ function cellCoords(el: Element): Coords | null {
     const table = td.closest("table");
     if (table) {
       const grid = makeTableGrid(table);
+      if (!grid) return null;
       const tr = td.closest("tr");
       if (!tr) return null;
       const allRows = Array.from(table.rows);
