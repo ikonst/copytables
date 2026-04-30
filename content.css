@@ -1,15 +1,14 @@
-table .copy-tables-selected {
+:is(table, [role="grid"], [role="table"]):has(.copy-tables-selected) {
   user-select: none !important;
 }
 
-[role="grid"] .copy-tables-selected {
-  user-select: none !important;
-}
-
-td.copy-tables-selected,
-th.copy-tables-selected,
-[role="gridcell"].copy-tables-selected,
-[role="columnheader"].copy-tables-selected {
+:is(
+  th,
+  td,
+  [role="gridcell"],
+  [role="columnheader"],
+  [role="cell"]
+).copy-tables-selected {
   background-color: rgba(0, 100, 255, 0.15);
   outline: 1px solid rgba(0, 100, 255, 0.4) !important;
 }

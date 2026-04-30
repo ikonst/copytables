@@ -1,12 +1,18 @@
 const className = "copy-tables-selected";
+const gridSelector = 'table, [role="grid"], [role="table"]';
+const rowSelector = 'tr, [role="row"]';
+const cellSelector =
+  'td, th, [role="cell"], [role="gridcell"], [role="columnheader"]';
 
 interface Grid {
   root: HTMLElement;
-  rowCount: number;
-  colCount: number;
+  rowIterator(): Generator<{ element: HTMLElement; index: number }>;
+  colIterator(
+    row: HTMLElement,
+  ): Generator<{ element: HTMLElement; index: number }>;
   cellAt(r: number, c: number): HTMLElement | null;
   rowElement(r: number): HTMLElement | null;
-  isHeaderRow(r: number): boolean;
+  isHeaderRow(row: HTMLElement): boolean;
   firstDataCell(): HTMLElement | null;
 }
 
@@ -51,17 +57,34 @@ function makeTableGrid(table: HTMLTableElement): Grid | null {
     return null;
   }
 
-  const allRows = Array.from(table.rows);
-  const rowCells = allRows.map((tr) => Array.from(tr.cells));
+  function* rowIterator(): Generator<{ element: HTMLElement; index: number }> {
+    const rows = table.rows;
+    let i = 0;
+    for (const row of rows) {
+      i++;
+      yield { element: row, index: i };
+    }
+  }
+
+  function* colIterator(
+    row: HTMLElement,
+  ): Generator<{ element: HTMLElement; index: number }> {
+    const cells = (row as HTMLTableRowElement).cells;
+    let i = 0;
+    for (const cell of cells) {
+      i++;
+      yield { element: cell, index: i };
+    }
+  }
 
   return {
     root: table,
-    rowCount: allRows.length,
-    colCount: Math.max(0, ...rowCells.map((r) => r.length)),
+    rowIterator,
+    colIterator,
     cellAt(r: number, c: number): HTMLElement | null {
-      const row = allRows[r - 1];
+      const row = table.rows[r - 1];
       if (row) {
-        const cell = rowCells[r - 1][c - 1];
+        const cell = row.cells[c - 1];
         if (cell) {
           return cell;
         }
@@ -69,18 +92,25 @@ function makeTableGrid(table: HTMLTableElement): Grid | null {
       return null;
     },
     rowElement(r: number): HTMLElement | null {
-      return allRows[r - 1] || null;
+      return table.rows[r - 1] || null;
     },
-    isHeaderRow(r: number): boolean {
-      const tr = allRows[r - 1];
-      if (!tr) return false;
-      if (tr.closest("thead")) return true;
-      const cells = Array.from(tr.cells);
-      return cells.length > 0 && cells.every((c) => c.tagName === "TH");
+    isHeaderRow(row: HTMLElement): boolean {
+      if (!(row instanceof HTMLTableRowElement)) {
+        return false;
+      }
+      if (row.closest("thead")) return true;
+      const { cells } = row;
+      if (cells.length === 0) return false;
+      for (const cell of cells) {
+        if (cell.tagName === "TH") {
+          return true;
+        }
+      }
+      return false;
     },
     firstDataCell(): HTMLElement | null {
-      for (const row of rowCells) {
-        for (const cell of row) {
+      for (const row of table.rows) {
+        for (const cell of row.cells) {
           if (cell.tagName === "TH" || table.tHead?.contains(cell)) {
             break;
           }
@@ -98,11 +128,11 @@ function makeAriaGrid(gridEl: HTMLElement): Grid {
   }
 
   function* rowIterator(): Generator<{
-    row: HTMLElement;
-    rowIndex: number;
+    element: HTMLElement;
+    index: number;
   }> {
     let rowIndex = 0;
-    for (const row of gridEl.querySelectorAll<HTMLElement>('[role="row"]')) {
+    for (const row of gridEl.querySelectorAll<HTMLElement>(rowSelector)) {
       if (row.ariaRowIndex !== null) {
         const nextRowIndex = Number(row.ariaRowIndex);
         if (nextRowIndex > rowIndex) {
@@ -115,18 +145,16 @@ function makeAriaGrid(gridEl: HTMLElement): Grid {
       } else {
         rowIndex++;
       }
-      yield { row, rowIndex };
+      yield { element: row, index: rowIndex };
     }
   }
 
-  function* cellIterator(row: HTMLElement): Generator<{
-    cell: HTMLElement;
-    colIndex: number;
+  function* colIterator(row: HTMLElement): Generator<{
+    element: HTMLElement;
+    index: number;
   }> {
     let colIndex = 0;
-    for (const cell of row.querySelectorAll<HTMLElement>(
-      '[role="gridcell"], [role="columnheader"]',
-    )) {
+    for (const cell of row.querySelectorAll<HTMLElement>(cellSelector)) {
       if (cell.ariaColIndex !== null) {
         const nextColIndex = Number(cell.ariaColIndex);
         if (nextColIndex > colIndex) {
@@ -139,12 +167,12 @@ function makeAriaGrid(gridEl: HTMLElement): Grid {
       } else {
         colIndex++;
       }
-      yield { cell, colIndex };
+      yield { element: cell, index: colIndex };
     }
   }
 
   function rowElement(r: number): HTMLElement | null {
-    for (const { row, rowIndex: ri } of rowIterator()) {
+    for (const { element: row, index: ri } of rowIterator()) {
       if (ri === r) {
         return row;
       }
@@ -154,16 +182,11 @@ function makeAriaGrid(gridEl: HTMLElement): Grid {
 
   return {
     root: gridEl,
-    rowCount: Number(gridEl.ariaRowCount),
-    colCount: Math.max(
-      0,
-      ...Array.from(gridEl.querySelectorAll('[role="row"]')).map((row) =>
-        Number(row.ariaColCount),
-      ),
-    ),
+    rowIterator,
+    colIterator,
     cellAt(r: number, c: number): HTMLElement | null {
-      for (const { row, rowIndex } of rowIterator()) {
-        for (const { cell, colIndex } of cellIterator(row)) {
+      for (const { element: row, index: rowIndex } of rowIterator()) {
+        for (const { element: cell, index: colIndex } of colIterator(row)) {
           if (rowIndex === r && colIndex === c) {
             return cell;
           }
@@ -172,18 +195,15 @@ function makeAriaGrid(gridEl: HTMLElement): Grid {
       return null;
     },
     rowElement,
-    isHeaderRow(r: number): boolean {
-      const row = rowElement(r);
+    isHeaderRow(row: HTMLElement): boolean {
       if (!row) return false;
-      const cells = Array.from(
-        row.querySelectorAll('[role="gridcell"], [role="columnheader"]'),
-      );
+      const cells = Array.from(row.querySelectorAll(cellSelector));
       if (cells.length === 0) return false;
       return cells.every((c) => c.role === "columnheader");
     },
     firstDataCell(): HTMLElement | null {
-      for (const { row } of rowIterator()) {
-        for (const { cell } of cellIterator(row)) {
+      for (const { element: row } of rowIterator()) {
+        for (const { element: cell } of colIterator(row)) {
           if (cell.role === "columnheader") {
             break;
           }
@@ -200,7 +220,8 @@ function findGrid(el: Element): Grid | null {
   if (table) {
     return makeTableGrid(table);
   }
-  const ariaGrid = el.closest<HTMLElement>('[role="grid"]');
+
+  const ariaGrid = el.closest<HTMLElement>(gridSelector);
   if (ariaGrid) return makeAriaGrid(ariaGrid);
   return null;
 }
@@ -234,24 +255,41 @@ function getCellProps(el: Element): { grid: Grid; coords: Coords } | null {
     }
   }
 
-  const ariaCell = el.closest<HTMLElement>(
-    '[role="gridcell"], [role="columnheader"]',
-  );
+  const ariaCell = el.closest<HTMLElement>(cellSelector);
   if (ariaCell) {
-    const ariaRow = ariaCell.closest<HTMLElement>('[role="row"]');
+    const ariaRow = ariaCell.closest<HTMLElement>(rowSelector);
     if (ariaRow) {
-      const ariaGrid = ariaCell.closest<HTMLElement>('[role="grid"]');
+      const ariaGrid = ariaCell.closest<HTMLElement>(gridSelector);
       if (ariaGrid) {
         const grid = makeAriaGrid(ariaGrid);
+        let rowIndex = Number(ariaRow.ariaRowIndex);
+        if (!rowIndex) {
+          for (const { element, index } of grid.rowIterator()) {
+            if (element === ariaRow) {
+              rowIndex = index;
+              break;
+            }
+          }
+        }
+        let colIndex = Number(ariaCell.ariaColIndex);
+        if (!colIndex) {
+          for (const { element, index } of grid.colIterator(ariaRow)) {
+            if (element === ariaCell) {
+              colIndex = index;
+              break;
+            }
+          }
+        }
+
         return {
           grid,
           coords: {
             row: {
-              index: Number(ariaRow.ariaRowIndex),
+              index: rowIndex,
               offset: ariaCell.offsetTop,
             },
             col: {
-              index: Number(ariaCell.ariaColIndex),
+              index: colIndex,
               offset: ariaCell.offsetLeft,
             },
           },
@@ -330,14 +368,19 @@ function highlightSelection(): void {
   removeSelectionClasses();
   const rect = getRect();
   if (!rect) return;
-  for (let r = rect.minRow.index; r <= rect.maxRow.index; r++) {
-    for (let c = rect.minCol.index; c <= rect.maxCol.index; c++) {
-      const cell = rect.grid.cellAt(r, c);
-      if (cell) {
+  for (const { element: row, index: r } of rect.grid.rowIterator()) {
+    for (const { element: cell, index: c } of rect.grid.colIterator(row)) {
+      if (
+        r >= rect.minRow.index &&
+        r <= rect.maxRow.index &&
+        c >= rect.minCol.index &&
+        c <= rect.maxCol.index
+      ) {
         cell.classList.add(className);
       }
     }
   }
+
   rect.grid.root.tabIndex = -1; // make grid focusable for better keyboard accessibility
   observeGrid();
 }
@@ -351,7 +394,7 @@ function checkIsMac() {
 
 document.addEventListener("mousedown", (e: MouseEvent) => {
   if (!(e.target instanceof Element)) return;
-  if (e.button !== 0) return; // only respond to main button
+  if (e.buttons !== 1) return; // only respond to main button
 
   // On Mac, only shift
   // On other platforms, only ctrl
@@ -382,7 +425,7 @@ document.addEventListener("mousedown", (e: MouseEvent) => {
 });
 
 document.addEventListener("mousemove", (e: MouseEvent) => {
-  if (!dragging || !selection) return;
+  if (!dragging || e.buttons !== 1 || !selection) return;
   if (!(e.target instanceof Element)) return;
   const cellProps = getCellProps(e.target);
   if (!cellProps || cellProps.grid.root !== selection.grid.root) return;
@@ -464,28 +507,25 @@ async function collectRows(
   const grid = rect.grid;
   const tsvLines: string[] = [];
   const htmlLines: string[] = [];
-  let headHtml = "";
 
-  const headerRows: number[] = [];
-  for (let r = 1; r <= grid.rowCount; r++) {
-    if (grid.isHeaderRow(r)) headerRows.push(r);
-    else break;
+  const headRowsHtml: string[] = [];
+  for (const { element, index: r } of grid.rowIterator()) {
+    if (!grid.isHeaderRow(element)) break;
+    if (r >= rect.minRow.index) break;
+    const tsvCols: string[] = [];
+    const htmlCols: string[] = [];
+    for (let c = rect.minCol.index; c <= rect.maxCol.index; c++) {
+      const cell = grid.cellAt(r, c);
+      tsvCols.push(cellTsvText(cell));
+      htmlCols.push(cellHTML(cell));
+    }
+    tsvLines.push(tsvCols.join("\t"));
+    headRowsHtml.push(`<tr>${htmlCols.join("")}</tr>`);
   }
 
-  if (headerRows.length > 0 && rect.minRow.index > headerRows[0]) {
-    const headRowsHtml: string[] = [];
-    for (const r of headerRows) {
-      const tsvCols: string[] = [];
-      const htmlCols: string[] = [];
-      for (let c = rect.minCol.index; c <= rect.maxCol.index; c++) {
-        const cell = grid.cellAt(r, c);
-        tsvCols.push(cellTsvText(cell));
-        htmlCols.push(cellHTML(cell));
-      }
-      tsvLines.push(tsvCols.join("\t"));
-      headRowsHtml.push(`<tr>${htmlCols.join("")}</tr>`);
-    }
-    headHtml = `<thead>${headRowsHtml.join("")}</thead>`;
+  let html = "<table>";
+  if (headRowsHtml.length > 0) {
+    html += `<thead>${headRowsHtml.join("")}</thead>`;
   }
 
   // Consider everything above the first *data* cell to be "frozen" like Excel's frozen panes.
@@ -506,7 +546,7 @@ async function collectRows(
     console.info(
       `Could not access first cell at ${rect.minRow.index}:${rect.minCol.index} after multiple attempts.`,
     );
-    return { tsv: "", html: headHtml + `<tbody></tbody>` };
+    return { tsv: "", html: html + `<tbody></tbody>` };
   }
 
   for (let r = rect.minRow.index; r <= rect.maxRow.index; r++) {
@@ -539,7 +579,7 @@ async function collectRows(
   }
 
   const tsv = tsvLines.join("\n");
-  const html = `<table>${headHtml}<tbody>${htmlLines.join("")}</tbody></table>`;
+  html += `<tbody>${htmlLines.join("")}</tbody></table>`;
   return { tsv, html };
 }
 
