@@ -17,5 +17,5 @@
 
 - Requires data tables (must contain header) either defined with `<table>`, `<tr>`, `<th>`, `<td>` or ARIA roles `grid`, `row`, `columnheader`, `datacell`, etc.
 - Copies virtualized tables by scrolling rows into view
-- Prepends the header
+- Even if you didn't select it, prepends the header to the copied table
 - Copies TSV (text/plain) — recognized by Slack, and HTML table (text/html) — preferred by everything else
