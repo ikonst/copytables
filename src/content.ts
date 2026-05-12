@@ -1,4 +1,8 @@
 const className = "copy-tables-selected";
+const leftClassName = "copy-tables-left-selected";
+const rightClassName = "copy-tables-right-selected";
+const topClassName = "copy-tables-top-selected";
+const bottomClassName = "copy-tables-bottom-selected";
 const gridSelector = 'table, [role="grid"], [role="table"]';
 const rowSelector = 'tr, [role="row"]';
 const cellSelector =
@@ -303,6 +307,10 @@ function getCellProps(el: Element): { grid: Grid; coords: Coords } | null {
 function removeSelectionClasses(): void {
   document.querySelectorAll(`.${className}`).forEach((el) => {
     el.classList.remove(className);
+    el.classList.remove(leftClassName);
+    el.classList.remove(rightClassName);
+    el.classList.remove(topClassName);
+    el.classList.remove(bottomClassName);
   });
 }
 
@@ -377,6 +385,18 @@ function highlightSelection(): void {
         c <= rect.maxCol.index
       ) {
         cell.classList.add(className);
+        if (r === rect.minRow.index) {
+          cell.classList.add(topClassName);
+        }
+        if (r === rect.maxRow.index) {
+          cell.classList.add(bottomClassName);
+        }
+        if (c === rect.minCol.index) {
+          cell.classList.add(leftClassName);
+        }
+        if (c === rect.maxCol.index) {
+          cell.classList.add(rightClassName);
+        }
       }
     }
   }

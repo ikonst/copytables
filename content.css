@@ -2,13 +2,37 @@
   user-select: none !important;
 }
 
-:is(
-  th,
-  td,
-  [role="gridcell"],
-  [role="columnheader"],
-  [role="cell"]
-).copy-tables-selected {
-  background-color: rgba(0, 100, 255, 0.15);
-  outline: 1px solid rgba(0, 100, 255, 0.4) !important;
+.copy-tables-selected {
+  --border-style: 1px solid blue;
+  will-change: transform; /* use own layer for sake of the overlay below */
+  /* outline: 1px solid rgba(0, 100, 255, 0.4) !important; */
+}
+
+/* Implements an overlay on top of the cells */
+.copy-tables-selected::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 123, 255, 0.3);
+  z-index: 1;
+  pointer-events: none; /* allow clicking through */
+}
+
+.copy-tables-left-selected::after {
+  border-left: var(--border-style);
+}
+
+.copy-tables-right-selected::after {
+  border-right: var(--border-style);
+}
+
+.copy-tables-top-selected::after {
+  border-top: var(--border-style);
+}
+
+.copy-tables-bottom-selected::after {
+  border-bottom: var(--border-style);
 }
